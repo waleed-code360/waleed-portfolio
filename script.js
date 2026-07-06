@@ -44,34 +44,71 @@ function formatDate(dateString) {
   }
 }
 
+function formatProjectName(name = "") {
+  return name
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getRepoPreviewUrl(repo) {
+  const stamp = String(repo.updated_at || repo.name || "portfolio").replace(/\W/g, "");
+  return `https://opengraph.githubassets.com/${stamp}/${repoUser}/${encodeURIComponent(repo.name)}`;
+}
+
+function buildFallbackVisual(repo) {
+  const title = escapeHtml(formatProjectName(repo.name));
+  const language = escapeHtml(repo.language || "Project");
+
+  return `
+    <div class="project-visual-fallback" aria-hidden="true">
+      <span>${language}</span>
+      <strong>${title}</strong>
+    </div>
+  `;
+}
+
 function buildProjectCard(repo) {
+  const title = formatProjectName(repo.name);
   const description = repo.description || "A public GitHub project by Waleed Sohail.";
   const language = repo.language || "Code";
-  const topics = Array.isArray(repo.topics) && repo.topics.length ? repo.topics.slice(0, 4) : [language];
+  const topics = Array.isArray(repo.topics) && repo.topics.length ? repo.topics.slice(0, 5) : [language];
   const liveLink = repo.homepage && repo.homepage.startsWith("http") ? repo.homepage : repo.html_url;
+  const sourceLink = repo.html_url;
+  const previewUrl = getRepoPreviewUrl(repo);
 
   return `
     <article class="project-card">
+      <a class="project-visual" href="${escapeHtml(liveLink)}" target="_blank" rel="noreferrer" aria-label="Open ${escapeHtml(title)}">
+        <img
+          src="${escapeHtml(previewUrl)}"
+          alt="${escapeHtml(title)} project preview"
+          loading="lazy"
+          onerror="this.closest('.project-visual').innerHTML = this.closest('.project-visual').dataset.fallback"
+        />
+      </a>
+
       <a href="${escapeHtml(liveLink)}" target="_blank" rel="noreferrer">
         <p class="project-meta">Updated ${escapeHtml(formatDate(repo.updated_at))}</p>
-        <h3>${escapeHtml(repo.name.replaceAll("-", " "))} <span aria-hidden="true">↗</span></h3>
+        <h3>${escapeHtml(title)} <span aria-hidden="true">↗</span></h3>
         <p>${escapeHtml(description)}</p>
       </a>
+
       <div class="project-footer">
         <ul class="pill-list" aria-label="Project tags">
           ${topics.map((topic) => `<li>${escapeHtml(topic)}</li>`).join("")}
         </ul>
-        <span class="muted">★ ${repo.stargazers_count || 0}</span>
+        <a class="muted" href="${escapeHtml(sourceLink)}" target="_blank" rel="noreferrer">GitHub</a>
       </div>
     </article>
-  `;
+  `.replace('<a class="project-visual"', `<a class="project-visual" data-fallback="${escapeHtml(buildFallbackVisual(repo))}"`);
 }
 
 async function loadProjects() {
   if (!projectList) return;
 
   try {
-    const response = await fetch(`https://api.github.com/users/${repoUser}/repos?sort=updated&per_page=12`);
+    const response = await fetch(`https://api.github.com/users/${repoUser}/repos?sort=updated&per_page=100`);
 
     if (!response.ok) {
       throw new Error("GitHub response was not OK");
@@ -80,7 +117,7 @@ async function loadProjects() {
     const repos = await response.json();
     const publicRepos = repos.filter((repo) => !repo.fork);
     const portfolioRepos = publicRepos.filter((repo) => Array.isArray(repo.topics) && repo.topics.includes("portfolio"));
-    const selectedRepos = (portfolioRepos.length ? portfolioRepos : publicRepos).slice(0, 6);
+    const selectedRepos = portfolioRepos.length ? portfolioRepos : publicRepos;
 
     if (!selectedRepos.length) {
       projectList.innerHTML = `<p class="muted">No public projects found yet. Add a GitHub repo and refresh this page.</p>`;
